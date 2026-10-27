@@ -5505,3 +5505,197 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* ---------- time postcard ----------------------------------------------- */
+
+.postcard-panel {
+  position: fixed;
+  z-index: 30;
+  top: 74px;
+  right: 30px;
+  width: min(520px, calc(100vw - 36px));
+  padding: 18px;
+  border: 1px solid var(--chrome-strong);
+  border-radius: 4px;
+  background: #090c12;
+  box-shadow: var(--raise), var(--seat), 0 20px 70px rgba(0, 0, 0, 0.72);
+  color: var(--ink);
+  animation: aim-in calc(240ms * var(--ritual)) var(--ease-seat) both;
+}
+
+.postcard-head,
+.postcard-picker,
+.postcard-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.postcard-head {
+  justify-content: space-between;
+}
+
+.postcard-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.postcard-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 17px var(--font-display);
+}
+
+.postcard-kicker,
+.postcard-time > span,
+.postcard-notice {
+  font: 10px var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.postcard-picker {
+  margin: 16px 0 12px;
+}
+
+.postcard-time {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.postcard-time strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 12px var(--font-display);
+}
+
+.postcard-time .ghost-btn {
+  padding: 5px 7px;
+  font-size: 8px;
+}
+
+.postcard-preview {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  aspect-ratio: 8 / 5;
+  overflow: hidden;
+  border: 1px solid var(--chrome-strong);
+  background: #05070b;
+}
+
+.postcard-preview-frame,
+.postcard-preview-frame img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.postcard-preview-frame img {
+  display: block;
+  object-fit: cover;
+}
+
+.postcard-missing {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  height: 100%;
+  color: var(--ink-dim);
+  font: 12px var(--font-mono);
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, #080b11), #05070b 70%);
+}
+
+.postcard-preview-seam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 9%;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, rgba(110, 225, 255, 0.7), transparent);
+  filter: blur(7px);
+  mix-blend-mode: screen;
+  animation: postcard-seam calc(3s * var(--ritual)) linear infinite;
+}
+
+.postcard-preview-mark {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  color: #fff;
+  font: 700 9px var(--font-mono);
+  letter-spacing: 0.16em;
+  text-shadow: 0 1px 4px #000;
+}
+
+.postcard-actions {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.postcard-notice {
+  margin: 12px 0 0;
+  line-height: 1.5;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.dial-postcard-marker {
+  position: absolute;
+  z-index: 7;
+  top: 2px;
+  width: 2px;
+  height: 40px;
+  transform: translateX(-1px);
+  background: #9ce8ff;
+  box-shadow: 0 0 7px rgba(110, 225, 255, 0.8);
+  pointer-events: none;
+}
+
+.dial-postcard-marker::before {
+  content: attr(data-marker);
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #dff8ff;
+  font: 700 9px var(--font-mono);
+}
+
+@keyframes postcard-seam {
+  50% { opacity: 0.55; }
+}
+
+@media (max-width: 560px) {
+  .postcard-panel {
+    top: 82px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 190px);
+    overflow-y: auto;
+    padding: 14px;
+  }
+
+  .postcard-picker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .postcard-panel,
+  .postcard-preview-seam {
+    animation: none;
+  }
+}

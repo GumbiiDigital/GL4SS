@@ -63,6 +63,8 @@ interface Props {
    * key the contact spark, so the dial never has to ask the engine anything.
    */
   seat?: { n: number; solid: boolean };
+  /** The two times selected for a postcard. */
+  postcardYears?: readonly [number, number] | null;
 }
 
 /**
@@ -99,6 +101,7 @@ export function TimeDial({
   pinIndex = null,
   pinAccent = '#ffd166',
   seat = { n: 0, solid: false },
+  postcardYears = null,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -406,6 +409,15 @@ export function TimeDial({
           // and they live in different subtrees.
           style={{ transform: `translateX(${offset}px)`, ['--pin-accent' as string]: pinAccent }}
         >
+          {postcardYears?.map((postcardYear, markerIndex) => (
+            <span
+              className="dial-postcard-marker"
+              data-marker={markerIndex === 0 ? 'A' : 'B'}
+              key={`${markerIndex}:${postcardYear}`}
+              style={{ left: centreForYear(postcardYear) }}
+              aria-hidden="true"
+            />
+          ))}
           {/* The span being compared, drawn literally: the distance between the
               fixed live needle and this travelling one IS the temporal distance,
               already spatially exact, for 2px inside an existing control. */}

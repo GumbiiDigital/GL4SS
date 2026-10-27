@@ -27,6 +27,7 @@ import { FilmControl } from './components/FilmControl';
 import { TimeLever } from './components/TimeLever';
 import { SunDial } from './components/SunDial';
 import { JourneyGallery } from './components/JourneyGallery';
+import { TimePostcard } from './components/TimePostcard';
 import type { Journey } from './lib/journeys';
 import { SceneEngine, sceneKey } from './lib/engine';
 import type { Scene, SceneStatus } from './lib/engine';
@@ -47,6 +48,8 @@ import {
   validateTemplate,
 } from '../lib/promptTemplate';
 import { formatYear, getEraBand } from '../lib/format';
+import { parsePostcardHash, writePostcardHash } from './lib/postcard';
+import type { PostcardConfig } from './lib/postcard';
 
 // Same storage keys as v1, so a key already saved there carries straight over.
 const STORAGE_KEY_API = 'looking-glass-openrouter-key';
@@ -184,6 +187,8 @@ export function Portal() {
   // Lazy useState rather than a ref: this is init-once derived state, and
   // reading a ref during render is exactly what it isn't for.
   const [initialUrl] = useState(readUrl);
+  const [initialPostcard] = useState(() => parsePostcardHash(window.location.hash));
+  const [postcard, setPostcard] = useState<PostcardConfig | null>(initialPostcard);
 
   const [apiKey, setApiKey] = useState(() => safeStorage.get(STORAGE_KEY_API) ?? '');
   const [models, setModels] = useState<ModelSelection>(loadModels);
@@ -192,15 +197,17 @@ export function Portal() {
     safeStorage.set(STORAGE_KEY_MODELS, JSON.stringify(next));
   }, []);
   const [styleId, setStyleId] = useState(
-    () => initialUrl.style ?? safeStorage.get(STORAGE_KEY_STYLE) ?? DEFAULT_STYLE_ID,
+    () => initialPostcard?.style ?? initialUrl.style ?? safeStorage.get(STORAGE_KEY_STYLE) ?? DEFAULT_STYLE_ID,
   );
 
   const [coordinates, setCoordinates] = useState<Coordinates>(() =>
-    initialUrl.lat !== undefined && initialUrl.lng !== undefined
+    initialPostcard
+      ? { lat: initialPostcard.lat, lng: initialPostcard.lng }
+      : initialUrl.lat !== undefined && initialUrl.lng !== undefined
       ? { lat: initialUrl.lat, lng: initialUrl.lng }
       : DEFAULT_PLACE,
   );
-  const [location, setLocation] = useState(() => initialUrl.loc ?? DEFAULT_PLACE_NAME);
+  const [location, setLocation] = useState(() => initialPostcard?.loc ?? initialUrl.loc ?? DEFAULT_PLACE_NAME);
   /**
    * Station index and how we got here, as ONE piece of state.
    *
@@ -216,7 +223,7 @@ export function Portal() {
     origin: number | null;
     jump: JumpCharacter | null;
   }>(() => ({
-    index: nearestStationIndex(initialUrl.year ?? DEFAULT_YEAR),
+    index: nearestStationIndex(initialPostcard?.a ?? initialUrl.year ?? DEFAULT_YEAR),
     origin: null,
     jump: null,
   }));
@@ -239,7 +246,7 @@ export function Portal() {
    * exception cannot leak into ordinary navigation.
    */
   const [exactYear, setExactYear] = useState<number | null>(() => {
-    const y = initialUrl.year;
+    const y = initialPostcard?.a ?? initialUrl.year;
     if (y === undefined) return null;
     return STATIONS.includes(y) ? null : y;
   });
@@ -315,10 +322,36 @@ export function Portal() {
    * generated before the sundial existed keeps its key and stays in the archive.
    */
   const [phaseId, setPhaseId] = useState(
-    () => findPhase(initialUrl.phase ?? safeStorage.get(STORAGE_KEY_PHASE) ?? DEFAULT_PHASE_ID).id,
+    () => findPhase(initialPostcard?.phase ?? initialUrl.phase ?? safeStorage.get(STORAGE_KEY_PHASE) ?? DEFAULT_PHASE_ID).id,
   );
 
   const [widened, setWidened] = useState(false);
+
+  // A postcard URL is application state. Back/forward and pasted hashes restore
+  // it without spending or touching the image provider.
+  useEffect(() => {
+    const restore = () => {
+      const next = parsePostcardHash(window.location.hash);
+      if (!next) {
+        setPostcard(null);
+        return;
+      }
+      setPostcard(next);
+      setCoordinates({ lat: next.lat, lng: next.lng });
+      setLocation(next.loc);
+      setStyleId(next.style);
+      setPhaseId(next.phase);
+      setIndex(nearestStationIndex(next.a));
+      setExactYear(STATIONS.includes(next.a) ? null : next.a);
+    };
+    // Back/forward across entries whose query also differs fires only popstate.
+    window.addEventListener('hashchange', restore);
+    window.addEventListener('popstate', restore);
+    return () => {
+      window.removeEventListener('hashchange', restore);
+      window.removeEventListener('popstate', restore);
+    };
+  }, [setIndex]);
 
   useEffect(() => {
     safeStorage.set(STORAGE_KEY_PHASE, phaseId);
@@ -505,6 +538,9 @@ export function Portal() {
 
   // --- demand: generate what the user settled on ---------------------------
   useEffect(() => {
+    // The postcard reads IndexedDB directly. Hash restore must never enter the
+    // engine's paid fallback when a stored row is torn or missing.
+    if (postcard) return;
     if (!apiKey || scrubbing) return;
     let cancelled = false;
     const t = setTimeout(async () => {
@@ -535,10 +571,11 @@ export function Portal() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [engine, apiKey, scrubbing, year, coordinates, location, styleKey, phaseId]);
+  }, [engine, apiKey, scrubbing, year, coordinates, location, styleKey, phaseId, postcard]);
 
   // --- speculation: once we've landed, prepare the neighbours --------------
   useEffect(() => {
+    if (postcard) return;
     if (!prefetchEnabled) return;
     if (!apiKey || scrubbing) return;
     if (scene?.status !== 'ready') return;
@@ -548,7 +585,7 @@ export function Portal() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [engine, apiKey, scrubbing, scene?.status, index, coordinates, location, styleKey, phaseId, prefetchEnabled]);
+  }, [engine, apiKey, scrubbing, scene?.status, index, coordinates, location, styleKey, phaseId, prefetchEnabled, postcard]);
 
   // --- url sync ------------------------------------------------------------
   useEffect(() => {
@@ -564,7 +601,11 @@ export function Portal() {
     // Without this a shared journey lost its hour — the sundial is part of the
     // destination, not a local preference.
     if (phaseId !== DEFAULT_PHASE_ID) p.set('phase', phaseId);
-    window.history.replaceState(null, '', `${window.location.pathname}?${p.toString()}`);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}?${p.toString()}${window.location.hash}`,
+    );
   }, [coordinates, year, location, styleId, phaseId]);
 
   useEffect(() => {
@@ -591,12 +632,14 @@ export function Portal() {
   // The custom chip's suffix is whatever the user wrote; every other chip uses
   // its own. Threaded into the engine so a style change re-keys the cache.
   useEffect(() => {
-    const preset = findStyle(styleId);
+    // A postcard hash cannot carry a custom prompt. While it is open, use the
+    // named preset and shipped template without changing the saved preference.
+    const preset = findStyle(postcard?.style ?? styleId);
     engine.setStyleOverride(
-      preset.isCustom ? (customStyle.trim() || null) : preset.suffix,
-      effectiveTemplate,
+      postcard ? preset.suffix : preset.isCustom ? (customStyle.trim() || null) : preset.suffix,
+      postcard ? DEFAULT_IMAGE_TEMPLATE : effectiveTemplate,
     );
-  }, [engine, styleId, customStyle, effectiveTemplate]);
+  }, [engine, styleId, customStyle, effectiveTemplate, postcard]);
 
   // --- input ---------------------------------------------------------------
   const step = useCallback(
@@ -656,8 +699,8 @@ export function Portal() {
     [engine, scene, filmSeconds],
   );
 
-  /** Throw the lever: this is the only path that starts a paid generation. */
-  const pullLever = useCallback(async () => {
+  /** Shared paid path for the lever and an explicit postcard Generate button. */
+  const generateYear = useCallback(async (targetYear: number) => {
     // Disarming the button is not enough on its own: the global key handler
     // routes Enter straight here, so a covered lever was still one keystroke
     // away. Both doors have to be shut, and this is the one that matters.
@@ -673,7 +716,16 @@ export function Portal() {
      * — a frame the visitor had already paid for in an earlier session.
      */
     await engine.whenHydrated();
-    const here = { year, coordinates, location, styleId: styleKey, phaseId };
+    const generationCoordinates = postcard
+      ? { lat: postcard.lat, lng: postcard.lng }
+      : coordinates;
+    const here = {
+      year: targetYear,
+      coordinates: generationCoordinates,
+      location: postcard?.loc ?? location,
+      styleId: postcard?.style ?? styleKey,
+      phaseId: postcard?.phase ?? phaseId,
+    };
     /**
      * A failed station needs retry(), not request(). request() finds the existing
      * scene, touches it and returns it unchanged — so a lever that arms on error
@@ -681,11 +733,17 @@ export function Portal() {
      * again is the wrong behaviour) would visibly arm and then do nothing at all.
      * retry() aborts anything still in flight and drops the scene so it rebuilds.
      */
-    if (scene?.status === 'error') engine.retry(here);
+    const targetScene = engine.peek(here);
+    if (targetScene?.status === 'error') engine.retry(here);
     else engine.request(here, 'demand');
+    setIndex(nearestStationIndex(targetYear));
+    setExactYear(STATIONS.includes(targetYear) ? null : targetYear);
     // The journey is spent; the next move starts a new one from here.
     setNav((cur) => ({ ...cur, origin: null }));
-  }, [engine, apiKey, year, coordinates, location, styleKey, phaseId, scene?.status, placeCoversLever]);
+  }, [engine, apiKey, coordinates, location, styleKey, phaseId, placeCoversLever, setIndex, postcard]);
+
+  /** Throw the lever for the tuned year. */
+  const pullLever = useCallback(() => generateYear(year), [generateYear, year]);
 
   const handleFrameError = useCallback(
     (key: string, message: string) => engine.markFrameError(key, message),
@@ -951,6 +1009,55 @@ export function Portal() {
   const shownYear = shownScene?.year ?? year;
   const shownAccent = eraAccent(shownYear);
 
+  const postcardLiveUrls = useMemo(() => {
+    if (!postcard) return {};
+    const findUrl = (postcardYear: number) => {
+      const frame = scenes.find((item) => item.key === sceneKey({
+        year: postcardYear,
+        coordinates: postcard,
+        location: postcard.loc,
+        styleId: postcard.style,
+        phaseId: postcard.phase,
+      }));
+      return frame?.heroUrl ? { key: frame.key, url: frame.heroUrl } : undefined;
+    };
+    return { a: findUrl(postcard.a), b: findUrl(postcard.b) };
+  }, [postcard, scenes]);
+
+  const changePostcard = useCallback((next: PostcardConfig) => {
+    setPostcard(next);
+    const url = new URL(window.location.href);
+    url.hash = writePostcardHash(next);
+    window.history.replaceState(null, '', url);
+  }, []);
+
+  const openPostcard = useCallback(() => {
+    const preset = findStyle(styleId);
+    if (preset.isCustom || effectiveTemplate !== DEFAULT_IMAGE_TEMPLATE) {
+      setPinNotice('postcards need a preset look and the default image template');
+      return;
+    }
+    const a = pinnedYear ?? shownYear;
+    const fallbackIndex = index < STATIONS.length - 1 ? index + 1 : index - 1;
+    const b = year === a ? STATIONS[fallbackIndex]! : year;
+    changePostcard({
+      lat: coordinates.lat,
+      lng: coordinates.lng,
+      loc: location,
+      a,
+      b,
+      phase: phaseId,
+      style: styleId,
+    });
+  }, [styleId, effectiveTemplate, pinnedYear, shownYear, index, year, changePostcard, coordinates, location, phaseId]);
+
+  const closePostcard = useCallback(() => {
+    setPostcard(null);
+    const url = new URL(window.location.href);
+    url.hash = '';
+    window.history.replaceState(null, '', url);
+  }, []);
+
   /**
    * What the dial is aimed at that the picture is NOT — by axis, not by key.
    *
@@ -1078,6 +1185,9 @@ export function Portal() {
           )}
           <button className="ghost-btn" onClick={() => setGalleryOpen(true)}>
             journeys
+          </button>
+          <button className="ghost-btn" onClick={openPostcard} aria-pressed={Boolean(postcard)}>
+            postcard
           </button>
           <button
             className="ghost-btn ghost-btn--fullscreen"
@@ -1306,6 +1416,7 @@ export function Portal() {
           seat={seat}
           pinIndex={activePin ? activePin.index : null}
           pinAccent={pinnedYear !== undefined ? eraAccent(pinnedYear) : accent}
+          postcardYears={postcard ? [postcard.a, postcard.b] : null}
         />
         <TimeLever
           armed={(!scene || scene.status === 'error') && !scrubbing && !placeCoversLever}
@@ -1338,6 +1449,17 @@ export function Portal() {
           )}
         </div>
       </div>
+
+      {postcard && (
+        <TimePostcard
+          config={postcard}
+          dialYear={year}
+          liveUrls={postcardLiveUrls}
+          onChange={changePostcard}
+          onGenerate={(postcardYear) => void generateYear(postcardYear)}
+          onClose={closePostcard}
+        />
+      )}
 
       {/* The one control that survives immersive mode. Rendered outside the
           chrome it is escaping from, because a button hidden by the state it

@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "TMPDIR=./node_modules/.tmp vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -30,7 +31,8 @@
     "globals": "^16.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^3.2.7"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
